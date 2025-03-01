@@ -49,7 +49,7 @@ class SantokerCube_BLE(ClientBLE):
         super().__init__()
 
         # Protocol parser variables
-        self._read_queue : asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)
+        self._read_queue : asyncio.Queue[bytes] = asyncio.Queue(maxsize=512)
         self._input_stream = IteratorReader(AsyncIterable(self._read_queue))
         self._read_msg:Callable[[Union[asyncio.StreamReader, IteratorReader]], Awaitable[None]] = read_msg
 
@@ -93,6 +93,8 @@ class Santoker(AsyncComm):
 
     HEADER_WIFI:Final[bytes] = b'\xEE\xA5'
     HEADER_BT:Final[bytes] = b'\xEE\xB5'
+    HEADER_BTv2:Final[bytes] = b'\xEE\xA5'  # Santoker R Master Series uses 'A5' as BT_HEADER
+
     CODE_HEADER:Final[bytes] = b'\x02\x04'
     TAIL:Final[bytes] = b'\xff\xfc\xff\xff'
 
@@ -125,11 +127,14 @@ class Santoker(AsyncComm):
                 dry_handler:Optional[Callable[[], None]] = None,
                 fcs_handler:Optional[Callable[[], None]] = None,
                 scs_handler:Optional[Callable[[], None]] = None,
-                drop_handler:Optional[Callable[[], None]] = None) -> None:
+                drop_handler:Optional[Callable[[], None]] = None,
+                verify_crc:bool = True,
+                RMasterSeries:bool = True
+            ) -> None:
 
         super().__init__(host, port, serial, connected_handler, disconnected_handler)
 
-        self.HEADER:bytes = (self.HEADER_BT if connect_using_ble else self.HEADER_WIFI)
+        self.HEADER:bytes = (self.HEADER_BTv2 if (RMasterSeries and connect_using_ble) else self.HEADER_BT if connect_using_ble else self.HEADER_WIFI)
 
         self._connect_using_ble:bool = connect_using_ble
 
@@ -157,6 +162,8 @@ class Santoker(AsyncComm):
         self._FCs:bool = False
         self._SCs:bool = False
         self._DROP:bool = False
+
+        self._verify_crc:bool = verify_crc
 
         self._ble_client:Optional[SantokerCube_BLE] = \
                 (SantokerCube_BLE(self.read_msg, connected_handler, disconnected_handler) if self._connect_using_ble else None)
@@ -344,9 +351,14 @@ class Santoker(AsyncComm):
             super().stop()
 
 
-def main() -> None:
+def main(connect_using_ble: bool=False) -> None:
     import time
-    santoker = Santoker(host = '10.10.100.254', port = 20001)
+
+    if connect_using_ble:
+        santoker = Santoker(connect_using_ble=True)
+    else:
+        santoker = Santoker(host = '10.10.100.254', port = 20001)
+
     santoker.start()
     for _ in range(4):
         print('>>> hallo')
